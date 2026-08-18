@@ -84,7 +84,13 @@ function Get-Whisper {
     }
 }
 function Get-Qwen {
-    if (Test-Path models\qwen\model.gguf) { return }
+    # model.gguf must match the model requested; a stale file from an earlier
+    # build (or a different quantization) must not be reused -- it would break
+    # PyInstaller's 4GB onefile limit.
+    $stamp = Join-Path "models\qwen" "MODEL_TAG.txt"
+    $want = "$Model`n$ModelFile"
+    if ((Test-Path models\qwen\model.gguf) -and (Test-Path $stamp) -and
+        ((Get-Content $stamp -Raw) -eq $want)) { return }
     Write-Host "==> Downloading $ModelFile (~1.9 GB)"
     Remove-Item models\qwen -Recurse -Force -ErrorAction SilentlyContinue
     Invoke-HF "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir=r'models/qwen')"
@@ -95,6 +101,7 @@ function Get-Qwen {
     if (-not (Test-Path models\qwen\model.gguf)) {
         throw "Model download failed - check your internet connection and try again."
     }
+    Set-Content -Path $stamp -Value $want
 }
 Get-Whisper
 Get-Qwen
