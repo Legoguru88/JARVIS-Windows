@@ -1,15 +1,16 @@
 # JARVIS.exe build script -- produces a single self-contained executable.
 #
-#   powershell -ExecutionPolicy Bypass -File build.ps1            # CUDA (RTX 5080)
-#   powershell -ExecutionPolicy Bypass -File build.ps1 -Cpu       # any GPU / CPU
+#   powershell -ExecutionPolicy Bypass -File build.ps1            # GPU (RTX)
+#   powershell -ExecutionPolicy Bypass -File build.ps1 -Cpu       # CPU only
 #
-# The output JARVIS.exe (~5-6 GB, model included) lives in dist\ and needs
-# nothing else installed to run. Say "hey jarvis" then "wake up".
+# Default model is Qwen2.5-3B Q4_K_M (~1.9 GB) because PyInstaller onefile
+# has a hard 4 GB per-file limit and CPU builds run better on a smaller
+# model. Builds to dist\JARVIS.exe (~2-3 GB) needing nothing else installed.
 
 param(
-    [switch]$Cpu,                # build the CPU version (no CUDA / Nvidia GPU needed)
-    [string]$Model = "bartowski/Qwen2.5-7B-Instruct-GGUF",
-    [string]$ModelFile = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+    [switch]$Cpu,                # build the CPU version (no Nvidia GPU needed)
+    [string]$Model = "bartowski/Qwen2.5-3B-Instruct-GGUF",
+    [string]$ModelFile = "Qwen2.5-3B-Instruct-Q4_K_M.gguf"
 )
 
 $ErrorActionPreference = "Stop"
@@ -84,7 +85,7 @@ function Get-Whisper {
 }
 function Get-Qwen {
     if (Test-Path models\qwen\model.gguf) { return }
-    Write-Host "==> Downloading $ModelFile (~4.7 GB)"
+    Write-Host "==> Downloading $ModelFile (~1.9 GB)"
     Remove-Item models\qwen -Recurse -Force -ErrorAction SilentlyContinue
     Invoke-HF "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir=r'models/qwen')"
     if (-not (Test-Path models\qwen\model.gguf)) {

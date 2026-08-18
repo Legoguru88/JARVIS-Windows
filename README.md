@@ -7,7 +7,7 @@ replacements for the Linux tooling.
 **Two ways to run it:**
 
 1. **Self-contained single .exe** (`standalone/`) — one file
-   containing everything: wake word, whisper, a bundled Qwen 7B model, and
+   containing everything: wake word, whisper, a bundled Qwen model, and
    speech. Requires only Python + an Nvidia GPU to build, and nothing at all
    on the machine that runs it. **Recommended.**
 2. **Python install** (`setup.ps1`) — the classic venv install, needs Ollama
@@ -147,12 +147,14 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Cpu
 ```
 
 This is a big download once (~5 GB of model files) and takes a few minutes;
-it produces **`dist\JARVIS.exe`** (~5-6 GB), which contains everything:
+it produces **`dist\JARVIS.exe`** (~2-3 GB), which contains everything:
 
 - **Wake word** — openwakeword embedded "hey jarvis" model
 - **Confirmation STT** — faster-whisper `tiny.en`, bundled
-- **Briefing brain** — Qwen2.5-7B Q4 (GGUF), bundled, runs on-GPU via
-  llama-cpp-python (CUDA 12.8 / Blackwell sm_120)
+- **Briefing brain** — Qwen2.5-3B Q4_K_M (GGUF, ~1.9 GB), bundled, run via
+  llama-cpp-python (GPU offload when a CUDA build is available). A small model
+  is required: PyInstaller onefile has a hard 4 GB per-file limit, and it
+  keeps CPU builds usable.
 - **Speech** — Windows SAPI, already part of the OS
 
 That single exe embeds the LLM, the STT model, the wake word model, and all

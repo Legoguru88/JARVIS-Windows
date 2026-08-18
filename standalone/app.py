@@ -4,7 +4,7 @@ JARVIS.exe — fully self-contained Windows voice assistant.
 Everything is bundled into this one file:
   - Wake word ("hey jarvis")          openwakeword (embedded model)
   - Confirmation speech-to-text       faster-whisper tiny.en (bundled model)
-  - Briefing generation               llama-cpp-python + Qwen2.5-7B GGUF (bundled)
+  - Briefing generation               llama-cpp-python + bundled Qwen GGUF
   - Speech output                     Windows SAPI (built into the OS)
 
 Build it with build.ps1. Runs entirely offline; installs nothing on the PC.
