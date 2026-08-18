@@ -8,8 +8,8 @@
 
 param(
     [switch]$Cpu,                # build the CPU version (no CUDA / Nvidia GPU needed)
-    [string]$Model = "Qwen/Qwen2.5-7B-Instruct-GGUF",
-    [string]$ModelFile = "qwen2.5-7b-instruct-q4_k_m.gguf"
+    [string]$Model = "bartowski/Qwen2.5-7B-Instruct-GGUF",
+    [string]$ModelFile = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,6 +42,18 @@ if ($Cpu) {
 # ------------------------------------------------------------ bundle the models
 
 $WarningPreference = "SilentlyContinue"
+function Invoke-HF {
+    param([string]$Script)
+    # Try the official endpoint, then fall back to a mirror for networks that
+    # block huggingface.co.
+    $env:HF_ENDPOINT = "https://huggingface.co"
+    & $py -c $Script
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "   primary endpoint failed, retrying via hf-mirror.com"
+        $env:HF_ENDPOINT = "https://hf-mirror.com"
+        & $py -c $Script
+    }
+}
 function Get-Whisper {
     $need = "config.json", "model.bin", "tokenizer.json"
     $ok = $true
@@ -49,7 +61,7 @@ function Get-Whisper {
     if ($ok) { return }
     Write-Host "==> Downloading whisper tiny.en (~75 MB)"
     Remove-Item models\whisper -Recurse -Force -ErrorAction SilentlyContinue
-    & $py -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-tiny.en', local_dir='models/whisper/tiny.en', max_workers=1)"
+    Invoke-HF "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-tiny.en', local_dir='models/whisper/tiny.en', max_workers=1)"
     if (-not (Test-Path models\whisper\tiny.en\model.bin)) {
         throw "Whisper download failed - check your internet connection and try again."
     }
@@ -58,7 +70,7 @@ function Get-Qwen {
     if (Test-Path models\qwen\model.gguf) { return }
     Write-Host "==> Downloading $ModelFile (~4.7 GB)"
     Remove-Item models\qwen -Recurse -Force -ErrorAction SilentlyContinue
-    & $py -c "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir='models/qwen', max_workers=1)"
+    Invoke-HF "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir='models/qwen', max_workers=1)"
     if (-not (Test-Path models\qwen\model.gguf)) {
         Get-ChildItem models\qwen -Filter *.gguf -ErrorAction SilentlyContinue |
             ForEach-Object { if ($_.Name -ne 'model.gguf') { Copy-Item $_.FullName 'models\qwen\model.gguf' } }
