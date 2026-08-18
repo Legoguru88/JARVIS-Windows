@@ -1,105 +1,83 @@
-"""diagnose why llama.dll fails to load: reliable import-table dump via pefile."""
+"""diagnose why llama.dll fails to load: probe with DLL search-path fixes."""
 import ctypes
 import os
 import subprocess
 import sys
 
-FULL = os.path.expandvars(r"%LOCALAPPDATA%\Temp")
+LIBDIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    ".build", ".venv", "Lib", "site-packages", "llama_cpp", "lib",
+)
+LLAMA = os.path.join(LIBDIR, "llama.dll")
 
 
-def ensure_pefile():
+def probe(tag, pre=None):
+    print(f"\n[{tag}]")
+    if pre:
+        pre()
     try:
-        import pefile  # noqa: F401
+        h = ctypes.WinDLL(LLAMA)
+        print("  LOADED OK ->", LLAMA)
         return True
-    except ImportError:
-        pass
-    print("installing pefile ...")
-    ok = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-q", "pefile"],
-        capture_output=True,
-    ).returncode == 0
-    return ok
+    except OSError as e:
+        print(f"  FAIL (winerror={e.winerror}): {e}")
+        print("  -> the missing dep is one llama.dll imports but Windows cannot find")
+        return False
+
+
+def add_libdir():
+    try:
+        os.add_dll_directory(LIBDIR)
+        print(f"  add_dll_directory({LIBDIR})")
+    except OSError as e:
+        print("  add_dll_directory failed:", e)
+
+
+def add_system32():
+    try:
+        os.add_dll_directory(r"C:\Windows\System32")
+        print("  add_dll_directory(System32)")
+    except OSError as e:
+        print("  add_dll_directory(System32) failed:", e)
+
+
+def check_msvc():
+    for dll in ("MSVCP140.dll", "VCRUNTIME140.dll", "VCRUNTIME140_1.dll"):
+        try:
+            ctypes.WinDLL(dll)
+            print(f"  system has {dll}")
+        except OSError:
+            print(f"  system MISSING {dll}")
 
 
 def main():
-    if not ensure_pefile():
-        print("could not install pefile; falling back to verbose ctypes load")
-        _ctypes_probe()
-        return
-    import pefile
+    print("llama.dll:", LLAMA)
+    print("lib dir contents:")
+    if os.path.isdir(LIBDIR):
+        for f in sorted(os.listdir(LIBDIR)):
+            fp = os.path.join(LIBDIR, f)
+            print(f"   {os.path.getsize(fp):>12,}  {f}")
+    else:
+        print("   (lib dir missing)")
 
-    pkg = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        ".build", ".venv", "Lib", "site-packages", "llama_cpp", "lib", "llama.dll",
-    )
-    if not os.path.exists(pkg):
-        print(f"llama.dll NOT at {pkg}")
-        sys.exit(1)
+    ok = probe("plain load", check_msvc)
+    if not ok:
+        probe("after add_dll_directory(libdir)", add_libdir)
+    if not ok:
+        probe("after libdir + System32", add_system32)
 
-    print("llama.dll:", pkg)
-    print("size:", os.path.getsize(pkg))
-
+    # confirm the actual llama_cpp loader path
+    print("\nllama_cpp loader version check:")
     try:
-        pe = pefile.PE(pkg, fast_load=True)
-        pe.parse_data_directories(directories=[
-            pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"],
-            pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT"],
-        ])
+        sub = subprocess.run(
+            [sys.executable, "-c",
+             "import importlib.metadata as m; print(m.version('llama-cpp-python'))"],
+            capture_output=True, text=True)
+        print("  version:", sub.stdout.strip() or sub.stderr.strip())
     except Exception as e:
-        print("pefile parse error:", e)
-        _ctypes_probe()
-        return
-
-    imports = set()
-    for entry in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []) or []:
-        imports.add(entry.dll.decode(errors="replace"))
-        for imp in entry.imports:
-            pass
-    for entry in getattr(pe, "DIRECTORY_ENTRY_DELAY_IMPORT", []) or []:
-        imports.add(entry.dll.decode(errors="replace"))
-
-    print("\nimported DLLs:")
-    for d in sorted(imports):
-        print("  ", d)
-
-    if not imports:
-        print("  (none found - likely fully static, e.g. /MT MSVC runtime)")
-        print("  then only the DLL itself or its absence explains the load failure")
-
-    print("\ntrying to load the DLL directly ...")
-    _ctypes_probe()
-
-    print("\nresolvability of its imports:")
-    for d in sorted(imports):
-        lo = d.lower()
-        if not lo.endswith((".dll", ".sys")):
-            continue
-        try:
-            ctypes.WinDLL(ctypes.util.find_library(d) or d)
-            print(f"  OK    {d}")
-        except OSError:
-            print(f"  MISS  {d}")
-
-
-def _ctypes_probe():
-    paths = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     ".build", ".venv", "Lib", "site-packages", "llama_cpp", "lib"),
-        FULL,
-    ]
-    for base in paths:
-        dll = os.path.join(base, "llama.dll")
-        if not os.path.exists(dll):
-            continue
-        try:
-            ctypes.CDLL(os.path.abspath(dll))
-            print(f"  LOADED OK  {dll}")
-        except OSError as e:
-            print(f"  FAIL (winerror={e.winerror})  {dll}")
-            print(f"    {e}")
-        return
-    print(f"  llama.dll not found in {paths}")
+        print("  ", e)
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     main()
