@@ -61,7 +61,7 @@ function Get-Whisper {
     if ($ok) { return }
     Write-Host "==> Downloading whisper tiny.en (~75 MB)"
     Remove-Item models\whisper -Recurse -Force -ErrorAction SilentlyContinue
-    Invoke-HF "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-tiny.en', local_dir='models/whisper/tiny.en', max_workers=1)"
+    Invoke-HF "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-tiny.en', local_dir=r'models/whisper/tiny.en', max_workers=1)"
     if (-not (Test-Path models\whisper\tiny.en\model.bin)) {
         throw "Whisper download failed - check your internet connection and try again."
     }
@@ -70,7 +70,7 @@ function Get-Qwen {
     if (Test-Path models\qwen\model.gguf) { return }
     Write-Host "==> Downloading $ModelFile (~4.7 GB)"
     Remove-Item models\qwen -Recurse -Force -ErrorAction SilentlyContinue
-    Invoke-HF "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir='models/qwen', max_workers=1)"
+    Invoke-HF "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir=r'models/qwen', max_workers=1)"
     if (-not (Test-Path models\qwen\model.gguf)) {
         Get-ChildItem models\qwen -Filter *.gguf -ErrorAction SilentlyContinue |
             ForEach-Object { if ($_.Name -ne 'model.gguf') { Copy-Item $_.FullName 'models\qwen\model.gguf' } }
