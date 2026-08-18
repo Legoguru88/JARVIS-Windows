@@ -1,65 +1,33 @@
-"""diagnose why llama.dll fails to load: prints its import dependencies."""
+"""diagnose why llama.dll fails to load: reliable import-table dump via pefile."""
 import ctypes
 import os
-import struct
+import subprocess
 import sys
 
-MSVC = ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll")
+FULL = os.path.expandvars(r"%LOCALAPPDATA%\Temp")
 
 
-def pe_imports(path: str):
-    with open(path, "rb") as f:
-        data = f.read()
-
-    if data[:2] != b"MZ":
-        return ["NOT A PE FILE"]
-
-    e_lfanew = struct.unpack_from("<I", data, 0x3C)[0]
-    if data[e_lfanew:e_lfanew + 4] != b"PE\x00\x00":
-        return ["BAD PE SIGNATURE"]
-
-    coff = e_lfanew + 4
-    opt_ptr = coff + 24
-    magic = struct.unpack_from("<H", data, opt_ptr)[0]
-    is64 = magic == 0x20B
-    opt_size = struct.unpack_from("<H", data, coff + 20)[0]
-
-    num_sections = struct.unpack_from("<H", data, coff + 2)[0]
-    section_ptr = coff + 24 + opt_size
-    sections = []
-    for i in range(num_sections):
-        off = section_ptr + i * 40
-        name = data[off:off + 8].rstrip(b"\x00").decode("latin1")
-        vsize = struct.unpack_from("<I", data, off + 8)[0]
-        vaddr = struct.unpack_from("<I", data, off + 12)[0]
-        raw_size = struct.unpack_from("<I", data, off + 16)[0]
-        raw_ptr = struct.unpack_from("<I", data, off + 20)[0]
-        sections.append((name, vaddr, vsize, raw_ptr, raw_size))
-
-    def rva_to_off(rva):
-        for name, vaddr, vsize, raw_ptr, raw_size in sections:
-            if vaddr <= rva < vaddr + max(vsize, raw_size):
-                return raw_ptr + (rva - vaddr)
-        return None
-
-    dd_off = opt_ptr + (112 if is64 else 96)
-    imp_rva, _ = struct.unpack_from("<II", data, dd_off)  # dir 1 = imports
-    if not imp_rva:
-        return ["NO IMPORT TABLE"]
-
-    out, off = [], rva_to_off(imp_rva)
-    while off is not None:
-        name_rva = struct.unpack_from("<I", data, off + 12)[0]
-        if not name_rva:
-            break
-        n_off = rva_to_off(name_rva)
-        end = data.index(b"\x00", n_off)
-        out.append(data[n_off:end].decode("latin1"))
-        off += 20
-    return out
+def ensure_pefile():
+    try:
+        import pefile  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    print("installing pefile ...")
+    ok = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "pefile"],
+        capture_output=True,
+    ).returncode == 0
+    return ok
 
 
 def main():
+    if not ensure_pefile():
+        print("could not install pefile; falling back to verbose ctypes load")
+        _ctypes_probe()
+        return
+    import pefile
+
     pkg = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         ".build", ".venv", "Lib", "site-packages", "llama_cpp", "lib", "llama.dll",
@@ -69,39 +37,68 @@ def main():
         sys.exit(1)
 
     print("llama.dll:", pkg)
-    deps = pe_imports(pkg)
-    if not deps:
-        print("could not parse imports")
+    print("size:", os.path.getsize(pkg))
+
+    try:
+        pe = pefile.PE(pkg, fast_load=True)
+        pe.parse_data_directories(directories=[
+            pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"],
+            pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT"],
+        ])
+    except Exception as e:
+        print("pefile parse error:", e)
+        _ctypes_probe()
         return
 
-    print("\nllama.dll depends on:")
-    for d in deps:
+    imports = set()
+    for entry in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []) or []:
+        imports.add(entry.dll.decode(errors="replace"))
+        for imp in entry.imports:
+            pass
+    for entry in getattr(pe, "DIRECTORY_ENTRY_DELAY_IMPORT", []) or []:
+        imports.add(entry.dll.decode(errors="replace"))
+
+    print("\nimported DLLs:")
+    for d in sorted(imports):
         print("  ", d)
 
-    interesting = [d for d in deps if any(k in d.lower() for k in
-        ("cudart", "cublas", "cudnn", "cuda", "nvidia", "nvrtc", "ggml",
-         "vcruntime", "msvcp", "concrt", "ucrt", "libomp", "libgomp"))]
-    if not interesting:
-        interesting = deps
+    if not imports:
+        print("  (none found - likely fully static, e.g. /MT MSVC runtime)")
+        print("  then only the DLL itself or its absence explains the load failure")
 
-    print("\nresolve check:")
-    for d in interesting:
+    print("\ntrying to load the DLL directly ...")
+    _ctypes_probe()
+
+    print("\nresolvability of its imports:")
+    for d in sorted(imports):
         lo = d.lower()
-        if not lo.endswith(".dll"):
+        if not lo.endswith((".dll", ".sys")):
             continue
         try:
-            ctypes.WinDLL(d)
+            ctypes.WinDLL(ctypes.util.find_library(d) or d)
             print(f"  OK    {d}")
         except OSError:
             print(f"  MISS  {d}")
 
-    print("\nMSVC runtime present in System32?")
-    for d in MSVC:
+
+def _ctypes_probe():
+    paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     ".build", ".venv", "Lib", "site-packages", "llama_cpp", "lib"),
+        FULL,
+    ]
+    for base in paths:
+        dll = os.path.join(base, "llama.dll")
+        if not os.path.exists(dll):
+            continue
         try:
-            ctypes.WinDLL(ctypes.util.find_library(d) or d)
-            print(f"  OK    {d}")
-        except (OSError, AttributeError):
-            print(f"  MISS  {d}")
+            ctypes.CDLL(os.path.abspath(dll))
+            print(f"  LOADED OK  {dll}")
+        except OSError as e:
+            print(f"  FAIL (winerror={e.winerror})  {dll}")
+            print(f"    {e}")
+        return
+    print(f"  llama.dll not found in {paths}")
 
 
 if __name__ == "__main__":
