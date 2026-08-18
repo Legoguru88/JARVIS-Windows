@@ -13,6 +13,7 @@ Build it with build.ps1. Runs entirely offline; installs nothing on the PC.
 import os
 import sys
 import time
+import traceback
 import threading
 import subprocess
 from datetime import datetime, timedelta
@@ -24,6 +25,17 @@ BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 EXE_DIR = Path(sys.executable).parent
 CONFIG = EXE_DIR / ".env"
 TASKS_FILE = EXE_DIR / "tasks.txt"
+LOG_FILE = EXE_DIR / "jarvis.log"
+
+
+def log_error(context: str, error: BaseException) -> None:
+    try:
+        with LOG_FILE.open("a", encoding="utf-8") as fh:
+            fh.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {context}: {error}\n")
+            fh.write("".join(traceback.format_exception(type(error), error, error.__traceback__)))
+            fh.write("\n")
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------- config
 
@@ -139,6 +151,9 @@ def sapi_speak(text: str) -> None:
     ps = (
         "Add-Type -AssemblyName System.Speech; "
         "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        "$v = $s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name } | "
+        "Where-Object { $_ -match 'Zira|David|Mark|Aria|Jenny' } | Select-Object -First 1; "
+        "if ($v) { $s.SelectVoice($v) } "
         f"$s.Rate = {rate}; "
         f"$s.Speak('{safe}');"
     )
@@ -186,8 +201,11 @@ def _load_llm():
     global _LLM
     with _LLM_LOCK:
         if _LLM is None:
-            from llama_cpp import Llama
-
+            try:
+                from llama_cpp import Llama
+            except Exception as error:
+                log_error("import llama_cpp", error)
+                raise
             gguf = BASE / "models" / "qwen" / "model.gguf"
             for layers in (-1, 0):  # try full GPU offload, else CPU
                 try:
@@ -199,6 +217,7 @@ def _load_llm():
                     )
                     break
                 except Exception as error:
+                    log_error(f"llama load (n_gpu_layers={layers})", error)
                     if layers == 0:
                         raise
                     print(f"GPU offload failed ({error}); using CPU", flush=True)
@@ -328,6 +347,7 @@ class Assistant:
             sapi_speak(f"{opener_line()}. {briefing}")
         except Exception as error:
             print(f"error: {error}", flush=True)
+            log_error("trigger", error)
             sapi_speak("I could not prepare the briefing, sir.")
         finally:
             self.busy = False
