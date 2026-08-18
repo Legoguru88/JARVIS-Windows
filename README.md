@@ -124,16 +124,16 @@ JARVIS speaks using the first working option:
 
 ---
 
-# Option 1 — Self-contained single .exe
+# Option 1 — Self-contained JARVIS folder
 
 Build once on any Windows PC with Python + an Nvidia GPU (the RTX 5080
-bundles in CUDA 12.8 support), then run that one file on any machine — no
+bundles in CUDA 12.8 support), then run that folder on any machine — no
 Python, no Ollama, no ffmpeg, no internet, no installs.
 
 ```
 standalone/
 ├── app.py        the whole assistant in one file
-├── build.ps1     one-command build -> dist\JARVIS.exe
+├── build.ps1     one-command build -> dist\JARVIS\ (folder)
 └── tasks.txt     bundled briefing tasks
 ```
 
@@ -147,28 +147,29 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Cpu
 ```
 
 This is a big download once (~5 GB of model files) and takes a few minutes;
-it produces **`dist\JARVIS.exe`** (~2-3 GB), which contains everything:
+it produces **`dist\JARVIS\`** (~5.5-6 GB), a self-contained folder:
 
 - **Wake word** — openwakeword embedded "hey jarvis" model
 - **Confirmation STT** — faster-whisper `tiny.en`, bundled
-- **Briefing brain** — Qwen2.5-3B Q4_K_M (GGUF, ~1.9 GB), bundled, run via
-  llama-cpp-python (GPU offload when a CUDA build is available). A small model
-  is required: PyInstaller onefile has a hard 4 GB per-file limit, and it
-  keeps CPU builds usable.
+- **Briefing brain** — Qwen2.5-7B Q4_K_M (GGUF, ~4.7 GB), bundled, run via
+  llama-cpp-python (GPU offload when a CUDA build is available). Built with
+  PyInstaller `--onedir`, which has no 4 GB archive limit, so the bigger 7B
+  model fits. For a small/portable build, override the model with
+  `-Model bartowski/Qwen2.5-3B-Instruct-GGUF -ModelFile Qwen2.5-3B-Instruct-Q4_K_M.gguf`.
 - **Speech** — Windows SAPI, already part of the OS
 
-That single exe embeds the LLM, the STT model, the wake word model, and all
+That folder embeds the LLM, the STT model, the wake word model, and all
 Python code. **Nothing else is placed on the PC.**
 
 ## Run
 
 ```powershell
-dist\JARVIS.exe                # always-on listener
-dist\JARVIS.exe --once         # one briefing immediately, for testing
+dist\JARVIS\JARVIS.exe                # always-on listener
+dist\JARVIS\JARVIS.exe --once         # one briefing immediately, for testing
 ```
 
-First launch loads the model into VRAM (10-30 s), then it's always warm. Say
-**"hey jarvis"** then **"wake up"**.
+First launch loads the model into RAM/VRAM (10-60 s), then it's always warm.
+Say **"hey jarvis"** then **"wake up"**.
 
 ## Tuning without rebuilding
 
@@ -181,9 +182,8 @@ Put a file next to the exe to override packaged defaults:
 
 ## Portability
 
-Because `JARVIS.exe` is a PyInstaller onefile bundle, it copies itself to a
-temp cache on first run (that's how onefile works) and needs ~GB of free
-temp space per launch — the *only* caveat to "nothing else on the PC". It
-cleans up after itself; the file you distribute remains a single exe. Swap
-hardware freely: would run on any Windows machine with enough RAM/VRAM, and
-the `-Cpu` flag rebuilds a no-GPU variant.
+Copy the whole `dist\JARVIS\` folder wherever you like — it runs in place
+from the folder, boots fast, and leaves nothing behind (unlike a onefile
+exe, there's no temp-cache extraction on launch). Swap hardware freely:
+would run on any Windows machine with enough RAM/VRAM, and the `-Cpu` flag
+rebuilds a no-GPU variant.
