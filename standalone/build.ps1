@@ -1,4 +1,4 @@
-# JARVIS.exe build script — produces a single self-contained executable.
+# JARVIS.exe build script -- produces a single self-contained executable.
 #
 #   powershell -ExecutionPolicy Bypass -File build.ps1            # CUDA (RTX 5080)
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -Cpu       # any GPU / CPU
@@ -78,6 +78,6 @@ Write-Host "==> Building JARVIS.exe (one file, self-contained)"
 if (-not (Test-Path dist\JARVIS.exe)) { throw "Build failed: dist\JARVIS.exe not produced." }
 $size = [math]::Round((Get-Item dist\JARVIS.exe).Length / 1GB, 2)
 Write-Host
-Write-Host "SUCCESS: dist\JARVIS.exe ($size GB) — copy it anywhere, it's the whole JARVIS."
+Write-Host "SUCCESS: dist\JARVIS.exe ($size GB) -- copy it anywhere, it's the whole JARVIS."
 Write-Host "  - Put a tasks.txt beside it to change the briefing, or a .env to tweak settings."
 Write-Host "  - First run takes ~10-30s while the model loads into VRAM."
