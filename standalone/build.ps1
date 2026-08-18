@@ -42,17 +42,33 @@ if ($Cpu) {
 # ------------------------------------------------------------ bundle the models
 
 $WarningPreference = "SilentlyContinue"
-if (-not (Test-Path models\whisper\tiny.en\model.bin)) {
+function Get-Whisper {
+    $need = "config.json", "model.bin", "tokenizer.json"
+    $ok = $true
+    foreach ($f in $need) { if (-not (Test-Path "models\whisper\tiny.en\$f")) { $ok = $false } }
+    if ($ok) { return }
     Write-Host "==> Downloading whisper tiny.en (~75 MB)"
-    & $py -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-tiny.en', local_dir='models/whisper/tiny.en')"
-}
-if (-not (Test-Path models\qwen\model.gguf)) {
-    Write-Host "==> Downloading $ModelFile (~4.7 GB)"
-    & $py -c "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir='models/qwen')"
-    if (-not (Test-Path models\qwen\model.gguf)) {
-        Get-ChildItem models\qwen -Filter *.gguf | ForEach-Object { if ($_.Name -ne 'model.gguf') { Copy-Item $_.FullName 'models\qwen\model.gguf' } }
+    Remove-Item models\whisper -Recurse -Force -ErrorAction SilentlyContinue
+    & $py -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-tiny.en', local_dir='models/whisper/tiny.en', max_workers=1)"
+    if (-not (Test-Path models\whisper\tiny.en\model.bin)) {
+        throw "Whisper download failed - check your internet connection and try again."
     }
 }
+function Get-Qwen {
+    if (Test-Path models\qwen\model.gguf) { return }
+    Write-Host "==> Downloading $ModelFile (~4.7 GB)"
+    Remove-Item models\qwen -Recurse -Force -ErrorAction SilentlyContinue
+    & $py -c "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir='models/qwen', max_workers=1)"
+    if (-not (Test-Path models\qwen\model.gguf)) {
+        Get-ChildItem models\qwen -Filter *.gguf -ErrorAction SilentlyContinue |
+            ForEach-Object { if ($_.Name -ne 'model.gguf') { Copy-Item $_.FullName 'models\qwen\model.gguf' } }
+    }
+    if (-not (Test-Path models\qwen\model.gguf)) {
+        throw "Model download failed - check your internet connection and try again."
+    }
+}
+Get-Whisper
+Get-Qwen
 
 # ------------------------------------------------------------ bundle tasks
 
