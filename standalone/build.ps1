@@ -1,17 +1,16 @@
-# JARVIS build script -- produces a self-contained folder (exe + _internal).
+# JARVIS.exe build script -- produces a single self-contained executable.
 #
 #   powershell -ExecutionPolicy Bypass -File build.ps1            # GPU (RTX)
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -Cpu       # CPU only
 #
-# Uses PyInstaller --onedir because onefile has a hard 4 GB archive limit;
-# onedir ships files loose in _internal, so the bigger 7B model fits. Builds
-# to dist\JARVIS\ (JARVIS.exe + _internal\) needing nothing else installed.
-# For a smaller build, pass -Model/-ModelFile (e.g. the 3B Q4_K_M).
+# Default model is Qwen2.5-3B Q4_K_M (~1.9 GB) because PyInstaller onefile
+# has a hard 4 GB per-file limit and CPU builds run better on a smaller
+# model. Builds to dist\JARVIS.exe (~2-3 GB) needing nothing else installed.
 
 param(
     [switch]$Cpu,                # build the CPU version (no Nvidia GPU needed)
-    [string]$Model = "bartowski/Qwen2.5-7B-Instruct-GGUF",
-    [string]$ModelFile = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+    [string]$Model = "bartowski/Qwen2.5-3B-Instruct-GGUF",
+    [string]$ModelFile = "Qwen2.5-3B-Instruct-Q4_K_M.gguf"
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,12 +85,13 @@ function Get-Whisper {
 }
 function Get-Qwen {
     # model.gguf must match the model requested; a stale file from an earlier
-    # build (or a different quantization) must not be reused silently.
+    # build (or a different quantization) must not be reused -- it would break
+    # PyInstaller's 4GB onefile limit.
     $stamp = Join-Path "models\qwen" "MODEL_TAG.txt"
     $want = "$Model`n$ModelFile"
     if ((Test-Path models\qwen\model.gguf) -and (Test-Path $stamp) -and
         ((Get-Content $stamp -Raw) -eq $want)) { return }
-    Write-Host "==> Downloading $ModelFile"
+    Write-Host "==> Downloading $ModelFile (~1.9 GB)"
     Remove-Item models\qwen -Recurse -Force -ErrorAction SilentlyContinue
     Invoke-HF "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir=r'models/qwen')"
     if (-not (Test-Path models\qwen\model.gguf)) {
@@ -110,12 +110,12 @@ Get-Qwen
 
 # ------------------------------------------------------------ PyInstaller
 
-Write-Host "==> Building JARVIS (folder, self-contained)"
+Write-Host "==> Building JARVIS.exe (one file, self-contained)"
 $ModelsAbs = Join-Path $Root "models"
 $TasksAbs = Join-Path $Root "tasks.txt"
 & $py -m PyInstaller `
     --noconfirm `
-    --onedir `
+    --onefile `
     --name JARVIS `
     --add-data "$ModelsAbs;models" `
     --add-data "$TasksAbs;." `
@@ -130,11 +130,9 @@ $TasksAbs = Join-Path $Root "tasks.txt"
     --specpath .build `
     app.py
 
-if (-not (Test-Path dist\JARVIS\JARVIS.exe)) { throw "Build failed: dist\JARVIS\JARVIS.exe not produced." }
-$folder = [math]::Round((Get-ChildItem dist\JARVIS -Recurse -File | Measure-Object Length -Sum).Sum / 1GB, 2)
-$exe = [math]::Round((Get-Item dist\JARVIS\JARVIS.exe).Length / 1MB, 0)
+if (-not (Test-Path dist\JARVIS.exe)) { throw "Build failed: dist\JARVIS.exe not produced." }
+$size = [math]::Round((Get-Item dist\JARVIS.exe).Length / 1GB, 2)
 Write-Host
-Write-Host "SUCCESS: dist\JARVIS\ ($folder GB total) -- copy the whole folder anywhere, it's the whole JARVIS."
-Write-Host "  - Run it as dist\JARVIS\JARVIS.exe (launcher is ${exe} MB; the rest lives in _internal\)."
-Write-Host "  - Put a tasks.txt next to the exe to change the briefing, or a .env to tweak settings."
-Write-Host "  - First run takes 10-60s while the model loads into RAM/VRAM."
+Write-Host "SUCCESS: dist\JARVIS.exe ($size GB) -- copy it anywhere, it's the whole JARVIS."
+Write-Host "  - Put a tasks.txt beside it to change the briefing, or a .env to tweak settings."
+Write-Host "  - First run takes ~10-30s while the model loads into VRAM."
