@@ -103,15 +103,18 @@ Get-Qwen
 # ------------------------------------------------------------ PyInstaller
 
 Write-Host "==> Building JARVIS.exe (one file, self-contained)"
+$ModelsAbs = Join-Path $Root "models"
+$TasksAbs = Join-Path $Root "tasks.txt"
 & $py -m PyInstaller `
     --noconfirm `
     --onefile `
     --name JARVIS `
-    --add-data "models;models" `
-    --add-data "tasks.txt;." `
+    --add-data "$ModelsAbs;models" `
+    --add-data "$TasksAbs;." `
     --collect-all openwakeword `
     --collect-all onnxruntime `
-    --collect-all sounddevice `
+    --collect-all _sounddevice `
+    --collect-all _sounddevice_data `
     --collect-all faster_whisper `
     --collect-all llama_cpp `
     --distpath dist `
