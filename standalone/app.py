@@ -37,6 +37,24 @@ def log_error(context: str, error: BaseException) -> None:
     except Exception:
         pass
 
+
+def _register_bundle_dll_dirs() -> None:
+    # PyInstaller onefile unpacks shared libs under _MEIPASS. Windows only
+    # searches the exe's own directory when resolving a DLL's dependencies,
+    # so ctypes-loaded llama.dll cannot find its sibling libs (MSVC runtime,
+    # CUDA runtime, etc). Register the bundle root in the DLL search path.
+    if os.name != "nt":
+        return
+    for d in (BASE, BASE / "llama_cpp", BASE / "llama_cpp" / "lib"):
+        try:
+            os.add_dll_directory(str(d))
+        except (AttributeError, OSError):
+            pass
+    os.environ["PATH"] = str(BASE) + os.pathsep + os.environ.get("PATH", "")
+
+
+_register_bundle_dll_dirs()
+
 # ---------------------------------------------------------------- config
 
 DEFAULTS = {
