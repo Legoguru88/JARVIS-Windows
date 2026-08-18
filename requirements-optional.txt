@@ -1,0 +1,4 @@
+#optional extras (uncomment as needed)
+#google-genai            # Gemini TTS voices (JARVIS_VOICE)
+#pytesseract pillow      # OCR (needs tesseract-ocr installed, set TESSERACT_CMD)
+#edge-tts                # alternative high-quality online TTS

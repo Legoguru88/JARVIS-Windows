@@ -1,0 +1,19 @@
+# Local secrets / state
+engine/.env
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+engine/.venv/
+
+# Standalone build artifacts
+standalone/dist/
+standalone/.build/
+standalone/models/
+standalone/*.egg-info/
+
+# Windows
+Thumbs.db
+Desktop.ini
