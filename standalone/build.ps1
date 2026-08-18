@@ -35,8 +35,24 @@ if ($Cpu) {
     Write-Host "==> Installing llama-cpp-python (CPU)"
     & $py -m pip install llama-cpp-python
 } else {
-    Write-Host "==> Installing llama-cpp-python (CUDA 12.8, Blackwell sm_120)"
-    & $py -m pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu128
+    Write-Host "==> Installing llama-cpp-python (CUDA, Blackwell sm_120)"
+    # Prebuilt CUDA wheels exist for cu121/cu122/cu123/cu124 on Python 3.10-3.12.
+    # cu128 is not published, so try cu124 (works with CUDA 12.8+ drivers), then
+    # fall back to a CPU build so the build never dies on platform quirks.
+    $cudaOk = $false
+    @("https://abetlen.github.io/llama-cpp-python/whl/cu124",
+      "https://abetlen.github.io/llama-cpp-python/whl/cu121") | ForEach-Object {
+        if (-not $cudaOk) {
+            Write-Host "   trying $_"
+            & $py -m pip install llama-cpp-python --extra-index-url "$_" 2>$null
+            if ($LASTEXITCODE -eq 0) { $cudaOk = $true }
+        }
+    }
+    if (-not $cudaOk) {
+        Write-Host "WARN: CUDA wheel unavailable for this Python - falling back to CPU llama-cpp."
+        & $py -m pip install llama-cpp-python
+        if ($LASTEXITCODE -ne 0) { throw "llama-cpp-python install failed" }
+    }
 }
 
 # ------------------------------------------------------------ bundle the models
@@ -70,7 +86,7 @@ function Get-Qwen {
     if (Test-Path models\qwen\model.gguf) { return }
     Write-Host "==> Downloading $ModelFile (~4.7 GB)"
     Remove-Item models\qwen -Recurse -Force -ErrorAction SilentlyContinue
-    Invoke-HF "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir=r'models/qwen', max_workers=1)"
+    Invoke-HF "from huggingface_hub import hf_hub_download; hf_hub_download('$Model', '$ModelFile', local_dir=r'models/qwen')"
     if (-not (Test-Path models\qwen\model.gguf)) {
         Get-ChildItem models\qwen -Filter *.gguf -ErrorAction SilentlyContinue |
             ForEach-Object { if ($_.Name -ne 'model.gguf') { Copy-Item $_.FullName 'models\qwen\model.gguf' } }

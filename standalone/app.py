@@ -189,12 +189,19 @@ def _load_llm():
             from llama_cpp import Llama
 
             gguf = BASE / "models" / "qwen" / "model.gguf"
-            _LLM = Llama(
-                model_path=str(gguf),
-                n_ctx=4096,
-                n_gpu_layers=-1,
-                verbose=False,
-            )
+            for layers in (-1, 0):  # try full GPU offload, else CPU
+                try:
+                    _LLM = Llama(
+                        model_path=str(gguf),
+                        n_ctx=4096,
+                        n_gpu_layers=layers,
+                        verbose=False,
+                    )
+                    break
+                except Exception as error:
+                    if layers == 0:
+                        raise
+                    print(f"GPU offload failed ({error}); using CPU", flush=True)
     return _LLM
 
 
