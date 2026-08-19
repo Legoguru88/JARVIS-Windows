@@ -106,29 +106,48 @@ function Get-Qwen {
 Get-Whisper
 Get-Qwen
 
-# ------------------------------------------------------------ bundle tasks
+# ------------------------------------------------------------ bundle llama DLLs
+
+# llama-cpp-python loads llama.dll (plus its ggml/CUDA runtime DLLs) via
+# ctypes at runtime, so PyInstaller's --collect-all reliably misses them and
+# the frozen exe crashes with "Failed to load shared library '...\llama.dll'".
+# Pull every DLL out of the build venv's llama_cpp package explicitly.
+$PyInstallerArgs = @(
+    "--noconfirm",
+    "--onefile",
+    "--name", "JARVIS",
+    "--add-data", "$(Join-Path $Root 'models');models",
+    "--add-data", "$(Join-Path $Root 'tasks.txt');.",
+    "--collect-all", "openwakeword",
+    "--collect-all", "onnxruntime",
+    "--collect-all", "_sounddevice",
+    "--collect-all", "_sounddevice_data",
+    "--collect-all", "faster_whisper",
+    "--collect-all", "llama_cpp",
+    "--distpath", "dist",
+    "--workpath", ".build\work",
+    "--specpath", ".build"
+)
+try {
+    $LlamaPkg = & $py -c "import os, llama_cpp; print(os.path.dirname(os.path.abspath(llama_cpp.__file__)))"
+    if ($LASTEXITCODE -eq 0 -and $LlamaPkg) {
+        Get-ChildItem $LlamaPkg -Recurse -Filter *.dll | ForEach-Object {
+            $rel = $_.DirectoryName.Substring($LlamaPkg.Length + 1)
+            if (-not $rel) { $rel = "." }
+            Write-Host "   bundling DLL $rel\$($_.Name)"
+            $PyInstallerArgs += "--add-binary=$($_.FullName);llama_cpp/$rel"
+        }
+    } else {
+        Write-Host "WARN: could not locate llama_cpp package - native DLLs will not be bundled."
+    }
+} catch {
+    Write-Host "WARN: could not locate llama_cpp package - native DLLs will not be bundled."
+}
 
 # ------------------------------------------------------------ PyInstaller
 
 Write-Host "==> Building JARVIS.exe (one file, self-contained)"
-$ModelsAbs = Join-Path $Root "models"
-$TasksAbs = Join-Path $Root "tasks.txt"
-& $py -m PyInstaller `
-    --noconfirm `
-    --onefile `
-    --name JARVIS `
-    --add-data "$ModelsAbs;models" `
-    --add-data "$TasksAbs;." `
-    --collect-all openwakeword `
-    --collect-all onnxruntime `
-    --collect-all _sounddevice `
-    --collect-all _sounddevice_data `
-    --collect-all faster_whisper `
-    --collect-all llama_cpp `
-    --distpath dist `
-    --workpath .build\work `
-    --specpath .build `
-    app.py
+& $py -m PyInstaller @PyInstallerArgs app.py
 
 if (-not (Test-Path dist\JARVIS.exe)) { throw "Build failed: dist\JARVIS.exe not produced." }
 $size = [math]::Round((Get-Item dist\JARVIS.exe).Length / 1GB, 2)
